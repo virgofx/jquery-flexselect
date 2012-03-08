@@ -19,6 +19,7 @@
   $.extend($.flexselect.prototype, {
     settings: {
       allowMismatch: false,
+      allowMismatchBlank: true, // If "true" a user can backspace such that the value is nothing (even if no blank value was provided in the original criteria)
       sortBy: 'score', // 'score' || 'name'
       preSelection: true,
       selectedClass: "flexselect_selected",
@@ -38,6 +39,7 @@
     abbreviationBeforeFocus: null,
     selectedIndex: 0,
     picked: false,
+    allowMouseMove: true,
     dropdownMouseover: false, // Workaround for poor IE behaviors
 
     init: function(select, options) {
@@ -68,7 +70,9 @@
         accesskey: this.select.attr("accesskey"),
         tabindex: this.select.attr("tabindex"),
         style: this.select.attr("style")
-      }).addClass(this.select.attr("class")).val($.trim(selected ? selected.text():  ''));
+      }).addClass(this.select.attr("class")).val($.trim(selected ? selected.text():  '')).css({
+        visibility: 'visible'
+      });
 
       this.dropdown = $("<div></div>").attr({
         id: this.settings.dropdownIdTransform(this.select.attr("id"))
@@ -102,30 +106,38 @@
       this.input.blur(function() {
         if (!self.dropdownMouseover) {
           self.hide();
-          if (!self.settings.allowMismatch && !self.picked) self.reset();
+          if (self.settings.allowMismatchBlank && $.trim($(this).val()) == '')
+            return self.hidden.val('');
+          if (!self.settings.allowMismatch && !self.picked)
+            self.reset();
         }
       });
 
-      this.dropdownList.mouseover(function (event) {
-        if (event.target.tagName == "LI") {
+      this.dropdownList.mouseover(function(event) {
+        if (!self.allowMouseMove) {
+          self.allowMouseMove = true;
+        return;
+        }
+
+    	if (event.target.tagName == "LI") {
           var rows = self.dropdown.find("li");
           self.markSelected(rows.index($(event.target)));
         }
       });
-      this.dropdownList.mouseleave(function () {
+      this.dropdownList.mouseleave(function() {
         self.markSelected(-1);
       });
-      this.dropdownList.mouseup(function (event) {
+      this.dropdownList.mouseup(function(event) {
         self.pickSelected();
         self.focusAndHide();
       });
-      this.dropdown.mouseover(function (event) {
+      this.dropdown.mouseover(function(event) {
         self.dropdownMouseover = true;
       });
-      this.dropdown.mouseleave(function (event) {
+      this.dropdown.mouseleave(function(event) {
         self.dropdownMouseover = false;
       });
-      this.dropdown.mousedown(function (event) {
+      this.dropdown.mousedown(function(event) {
         event.preventDefault();
       });
 
@@ -143,6 +155,7 @@
             break;
           default:
             self.filterResults();
+          self.lastKeyTime = new Date();
             break;
         }
       });
@@ -198,6 +211,7 @@
       this.markFirst();
       this.lastAbbreviation = abbreviation;
       this.picked = false;
+      this.allowMouseMove = false;
     },
 
     sortResultsByScore: function() {
@@ -211,28 +225,46 @@
     renderDropdown: function() {
       var dropdownBorderWidth = this.dropdown.outerWidth() - this.dropdown.innerWidth();
       var inputOffset = this.input.offset();
-      this.dropdown.css({
-        width: (this.input.outerWidth() - dropdownBorderWidth) + "px",
-        top: (inputOffset.top + this.input.outerHeight()) + "px",
-        left: inputOffset.left + "px"
-      });
+	    this.dropdown.css({
+		  width: (this.input.outerWidth() - dropdownBorderWidth) + "px",
+		  top: (inputOffset.top + this.input.outerHeight()) + "px",
+	      left: inputOffset.left + "px",
+	      maxHeight: ''
+	    });
 
-      var list = this.dropdownList.html("");
+      var html = '';
       $.each(this.results, function() {
-    	// list.append($("<li/>").html(this.name + " <small>[" + Math.round(this.score*100)/100 + "]</small>"));
-        list.append($("<li/>").html(this.name));
+        //html += '<li>' + this.name + ' <small>[' + Math.round(this.score*100)/100 + ']</small></li>';
+        html += '<li>' + this.name + '</li>';
       });
+      this.dropdownList.html(html);
+      this.adjustMaxHeight();
       this.dropdown.show();
+    },
+    
+    adjustMaxHeight: function() {
+      var maxTop = $(window).height() + $(window).scrollTop() - this.dropdown.outerHeight();
+      var top = parseInt(this.dropdown.css('top'), 10);
+      this.dropdown.css('max-height', top > maxTop ? (Math.max(0, maxTop - top + this.dropdown.innerHeight()) + 'px') : '');
     },
 
     markSelected: function(n) {
-      if (n > this.results.length) return;
+      if (n < 0 || n >= this.results.length) return;
 
       var rows = this.dropdown.find("li");
       rows.removeClass(this.settings.selectedClass);
       this.selectedIndex = n;
 
-      if (n >= 0) $(rows[n]).addClass(this.settings.selectedClass);
+      var row = $(rows[n]).addClass(this.settings.selectedClass);
+      var top = row.position().top;
+      var delta = top + row.outerHeight() - this.dropdown.height();
+      if (delta > 0) {
+        this.allowMouseMove = false;
+        this.dropdown.scrollTop(this.dropdown.scrollTop() + delta);
+      } else if (top < 0) {
+        this.allowMouseMove = false;
+        this.dropdown.scrollTop(Math.max(0, this.dropdown.scrollTop() + top));
+      }
     },
 
     pickSelected: function() {
